@@ -1,0 +1,103 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Admin</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:16px}
+  h1{font-size:18px;margin:0 0 12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+  input,button{font-size:14px;padding:8px}
+  table{border-collapse:collapse;width:100%;margin-top:12px}
+  th,td{border:1px solid #eee;padding:6px;font-size:14px;text-align:left}
+  th{background:#fafafa}
+  .small{font-size:12px;color:#666}
+</style>
+
+<h1>Panel Admin</h1>
+
+<div class="row">
+  <button onclick="setup()">Crear/Ajustar Club_DB</button>
+  <button onclick="load()">Recargar jugadores</button>
+  <span id="club" class="small"></span>
+</div>
+
+<div class="row">
+  <input id="parentId" placeholder="PARENT_FOLDER_ID (carpeta padre Drive)" style="width:380px" />
+  <button onclick="saveParent()">Guardar carpeta padre</button>
+  <button onclick="ensureAll()">Comprobar/Crear TODAS las carpetas</button>
+</div>
+
+<table id="t"><thead></thead><tbody></tbody></table>
+
+<script>
+let players=[];
+
+function setup(){
+  google.script.run.withSuccessHandler(res=>{
+    document.getElementById('club').textContent='SHEET_ID: '+res.clubDb;
+    alert('OK');
+  }).withFailureHandler(e=>alert('Error setup: '+e.message)).setupSheets();
+}
+function load(){
+  google.script.run.withSuccessHandler(res=>{
+    players=res; render(res);
+  }).withFailureHandler(e=>alert('Error listPlayers: '+e.message)).listPlayers();
+  google.script.run.withSuccessHandler(r=>{
+    document.getElementById('parentId').value = r.parentFolderId || '';
+  }).getParentFolderId();
+}
+function saveParent(){
+  const id=document.getElementById('parentId').value.trim();
+  google.script.run.withSuccessHandler(_=>alert('Guardado')).withFailureHandler(e=>alert(e.message)).setParentFolderId(id);
+}
+function ensureAll(){
+  google.script.run.withSuccessHandler(r=>alert('Total:'+r.total+' | created:'+r.created+' | linked:'+r.linked))
+    .withFailureHandler(e=>alert('Error: '+e.message)).ensureAllPlayerFolders();
+}
+
+function dl(pid){
+  google.script.run.withSuccessHandler(res=>{
+    const link = res && res.link ? res.link : '';
+    if (!link) return alert('No pude crear el deep-link.');
+    navigator.clipboard.writeText(link).then(()=>alert('Copiado:\n'+link));
+  }).withFailureHandler(err=> alert('Error getDeepLink: '+err.message)).getDeepLinkForPlayer(pid);
+}
+function genOnce(pid){
+  const h = prompt('Horas de validez (por defecto 24):','24')||'24';
+  google.script.run.withSuccessHandler(res=>{
+    const username = 'TU_BOT_USERNAME_SIN_@'; // opcional: quita esto si guardas BOT_USERNAME en props
+    const link = 'https://t.me/'+username+'?start='+encodeURIComponent(res.code);
+    navigator.clipboard.writeText(link).then(()=>alert('Código creado y deep-link copiado:\n'+link));
+  }).withFailureHandler(e=>alert('Error: '+e.message)).createLinkCode(pid, Number(h));
+}
+function ensure(pid){
+  google.script.run.withSuccessHandler(r=>alert(JSON.stringify(r))).withFailureHandler(e=>alert(e.message)).ensurePlayerFolder(pid);
+}
+function send(pid){
+  const chatId = prompt('chat_id del jugador (si ya está vinculado, deja vacío):','');
+  google.script.run.withSuccessHandler(r=>alert('Enviado')).withFailureHandler(e=>alert(e.message)).sendPlayerLink(chatId?Number(chatId):'', pid);
+}
+
+function render(rows){
+  const th=['playerId','name','telegramId','driveFolderId','role','code','acciones'];
+  const thead='<tr>'+th.map(h=>'<th>'+h+'</th>').join('')+'</tr>';
+  const tb = rows.map(r=>`
+    <tr>
+      <td>${r.playerId||''}</td>
+      <td>${r.name||''}</td>
+      <td>${r.telegramId||''}</td>
+      <td>${(r.driveFolderId||'').slice(0,12)}</td>
+      <td>${r.role||''}</td>
+      <td>${(r.code||'').slice(0,10)}</td>
+      <td>
+        <button onclick="dl('${r.playerId}')">Copiar deep-link ID</button>
+        <button onclick="genOnce('${r.playerId}')">Código 1 uso</button>
+        <button onclick="ensure('${r.playerId}')">Carpeta</button>
+        <button onclick="send('${r.playerId}')">Enviar acceso</button>
+      </td>
+    </tr>`).join('');
+  document.querySelector('#t thead').innerHTML=thead;
+  document.querySelector('#t tbody').innerHTML=tb;
+}
+load();
+</script>
