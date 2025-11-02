@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panel Admin · Google Picker</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+      h1 { font-size: 18px; margin: 0 0 12px; }
+      .row { margin: 8px 0; }
+      input[type="text"], textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+      button { padding: 10px 14px; cursor: pointer; }
+      .muted { color: #666; font-size: 12px; }
+      .ok { color: #0a7; }
+      .err { color: #c00; }
+      .card { border: 1px solid #eee; border-radius: 8px; padding: 12px; margin-top: 12px; }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+      @media (min-width: 680px) { .grid { grid-template-columns: 1fr 1fr; } }
+    </style>
+    <script src="https://apis.google.com/js/api.js"></script>
+  </head>
+  <body>
+    <h1>Panel de Administración · Google Picker</h1>
+    <div class="muted">Solo entrenadores/admins autorizados pueden usar este panel.</div>
+
+    <div class="card grid">
+      <div>
+        <div class="row">
+          <label>Caption para Telegram</label>
+          <textarea id="caption" rows="3" placeholder="Texto del post (opcional)"></textarea>
+        </div>
+        <div class="row">
+          <label>Chat ID (opcional, si no usa el por defecto)</label>
+          <input id="chatId" type="text" placeholder="Ej: -1001234567890" />
+        </div>
+        <div class="row">
+          <button id="btnPick">Seleccionar archivo desde Drive</button>
+        </div>
+        <div id="status" class="row muted"></div>
+      </div>
+      <div>
+        <div class="row">
+          <strong>Último archivo seleccionado</strong>
+          <div id="last"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let gConfig = null;
+      let gOAuthToken = null;
+
+      function setStatus(html, cls) {
+        const el = document.getElementById('status');
+        el.className = 'row ' + (cls || 'muted');
+        el.innerHTML = html;
+      }
+
+      function setLast(info) {
+        const el = document.getElementById('last');
+        el.innerHTML = info || '';
+      }
+
+      function init() {
+        setStatus('Cargando configuración…');
+        google.script.run.withSuccessHandler((cfg) => {
+          gConfig = cfg;
+          // Validate Picker config first
+          if (!cfg.pickerReady) {
+            const missing = (cfg.missingPicker || []).join(', ');
+            setStatus('Falta configurar Google Picker: ' + missing, 'err');
+            document.getElementById('btnPick').disabled = true;
+            return; // do not attempt to load Picker/OAuth
+          }
+          setStatus('Cargando Google API…');
+          gapi.load('client:picker', () => {
+            google.script.run.withSuccessHandler((token) => {
+              gOAuthToken = token;
+              setStatus('Listo. Pulsa “Seleccionar archivo”.', 'ok');
+              document.getElementById('btnPick').disabled = false;
+            }).withFailureHandler((err) => {
+              setStatus('Error obteniendo token OAuth: ' + err.message, 'err');
+            }).getOAuthToken();
+          });
+        }).withFailureHandler((err) => {
+          setStatus('No autorizado o error de config: ' + err.message, 'err');
+        }).getConfig();
+
+        document.getElementById('btnPick').addEventListener('click', openPicker);
+        document.getElementById('btnPick').disabled = true;
+      }
+
+      function openPicker() {
+        if (!gConfig || !gOAuthToken) return;
+        setStatus('Abriendo selector…');
+        const viewDocs = new google.picker.DocsView(google.picker.ViewId.DOCS)
+          .setIncludeFolders(true)
+          .setSelectFolderEnabled(false);
+
+        const picker = new google.picker.PickerBuilder()
+          .setAppId(gConfig.pickerAppId)
+          .setOAuthToken(gOAuthToken)
+          .setDeveloperKey(gConfig.pickerApiKey)
+          .addView(viewDocs)
+          .setOrigin(google.script.host.origin)
+          .setCallback(pickerCallback)
+          .build();
+        picker.setVisible(true);
+      }
+
+      function pickerCallback(data) {
+        if (data.action === google.picker.Action.PICKED) {
+          const doc = data.docs && data.docs[0];
+          if (!doc) return;
+          const fileId = doc.id;
+          const name = doc.name || '';
+          const mimeType = doc.mimeType || '';
+          setLast('Seleccionado: ' + name + ' (' + mimeType + ')');
+          const caption = document.getElementById('caption').value || '';
+          const chatId = (document.getElementById('chatId').value || '').trim();
+          setStatus('Enviando a Telegram y registrando…');
+          google.script.run
+            .withSuccessHandler((res) => {
+              if (res && res.ok) {
+                setStatus('Enviado y registrado correctamente.', 'ok');
+              } else {
+                setStatus('Error al enviar/registrar.', 'err');
+              }
+            })
+            .withFailureHandler((err) => {
+              setStatus('Error: ' + (err && err.message ? err.message : err), 'err');
+            })
+            .handleSelection_({ fileId, name, mimeType, caption, chatId });
+        } else if (data.action === google.picker.Action.CANCEL) {
+          setStatus('Cancelado.');
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', init);
+    </script>
+  </body>
+  </html>
