@@ -97,7 +97,9 @@ function sendAccessLinkToChat_(chatId, playerId){
   if (_panicOn_()) return {ok:false, message:'panic'};
   if (!shouldSendToChat_(chatId, 'access', 10)) return { ok:true, skipped:true }; // evita ráfagas
   try { ensurePlayerFolder_(playerId); } catch(_) {}
-  const code = ensurePermanentCode_(playerId);
+  // Genera código temporal (10 horas)
+  const temp = createLinkCode_(playerId, 10);
+  const code = temp.code;
   const base = ScriptApp.getService().getUrl();
   const url  = base + '?code=' + encodeURIComponent(code) + '#code=' + encodeURIComponent(code);
   const clas = getClassificationUrl_();
@@ -110,7 +112,7 @@ function sendAccessLinkToChat_(chatId, playerId){
       text: 'Toca un botón para abrir tu acceso:',
       reply_markup: JSON.stringify({
         inline_keyboard: [[
-          { text: '📂 Abrir mi carpeta', web_app: { url: url } },
+          { text: '📂 Abrir mi carpeta', url: url },
           { text: '📊 Clasificación', url: clas }
         ]]
       })
@@ -213,6 +215,7 @@ function handleUpdate_(update){
 
     if (data.startsWith('OPEN|')) {
       const pid = data.split('|')[1];
+      try { upsertTelegramLink_(pid, chatId, true); } catch(_){ }
       sendAccessLinkToChat_(chatId, pid);
       return;
     }
@@ -321,7 +324,12 @@ if (isValidPlayerId_(textRaw)) {
     return;
   }
 
-  sendText_(chatId, 'Escribe /ayuda');
+  try {
+    const p = findPlayerByTelegramId_(chatId);
+    sendHelperMenu_(chatId, true, p.playerId);
+  } catch(_){
+    sendHelperMenu_(chatId, false, '');
+  }
 }
 
 // =============== Validaciones / Telegram base ===============
@@ -608,12 +616,21 @@ function consumeLinkCode_(code){
 
 // =============== ENDPOINTS PLAYER ===============
 function player_exchangeCode(code, userAgent){
-  const p = getPlayerByCode_(code);
-  if (!p) throw new Error('Código inválido');
-  if (!p.driveFolderId) throw new Error('Jugador sin driveFolderId');
-  const sess = sessions_create_(p.playerId, 90, userAgent);
-  const files = listPlayerFiles_(p.driveFolderId);
-  return { sessionToken: sess.sessionToken, expiresAt: sess.expiresAt, player: { playerId:p.playerId, name:p.name, folderId:p.driveFolderId }, files };
+  // Primero intentamos consumir códigos temporales de 1 uso
+  let player = null;
+  try {
+    const pid = consumeLinkCode_(code);
+    player = getPlayerRowById_(pid);
+  } catch(_){
+    // Si no es temporal, intentamos el código permanente asociado al player
+    const p = getPlayerByCode_(code);
+    if (p) player = p;
+  }
+  if (!player) throw new Error('Código inválido');
+  if (!player.driveFolderId) throw new Error('Jugador sin driveFolderId');
+  const sess = sessions_create_(player.playerId, 90, userAgent);
+  const files = listPlayerFiles_(player.driveFolderId);
+  return { sessionToken: sess.sessionToken, expiresAt: sess.expiresAt, player: { playerId:player.playerId, name:player.name, folderId:player.driveFolderId }, files };
 }
 function player_contextBySession(sessionToken){
   const { playerId } = sessions_touch_(sessionToken, 90);

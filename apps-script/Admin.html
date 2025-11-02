@@ -47,8 +47,21 @@ function load(){
   }).getParentFolderId();
 }
 function saveParent(){
-  const id=document.getElementById('parentId').value.trim();
-  google.script.run.withSuccessHandler(_=>alert('Guardado')).withFailureHandler(e=>alert(e.message)).setParentFolderId(id);
+  const raw=document.getElementById('parentId').value.trim();
+  // Acepta URL completa de Drive o solo el ID
+  let id = raw;
+  try {
+    // https://drive.google.com/drive/folders/<ID>
+    const m1 = raw.match(/\/folders\/([a-zA-Z0-9_-]{20,})/);
+    if (m1) id = m1[1];
+    // ?id=<ID>
+    const m2 = raw.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+    if (m2) id = m2[1];
+  } catch(_){}
+  google.script.run
+    .withSuccessHandler(_=>alert('Guardado'))
+    .withFailureHandler(e=>alert(e.message))
+    .setParentFolderId(id);
 }
 function ensureAll(){
   google.script.run.withSuccessHandler(r=>alert('Total:'+r.total+' | created:'+r.created+' | linked:'+r.linked))
