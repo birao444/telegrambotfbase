@@ -1,0 +1,74 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mi Carpeta</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:14px}
+  h1{font-size:18px;margin:0 0 8px}
+  .muted{color:#666;font-size:12px;margin-bottom:8px}
+  ul{padding-left:18px}
+  li{margin:4px 0}
+  .warn{color:#b00}
+</style>
+
+<h1>Mi carpeta</h1>
+<p id="info" class="muted"></p>
+<ul id="files"></ul>
+<p id="err" class="warn"></p>
+
+<script>
+(function(){
+  // --- lectura robusta del code ---
+  function getParam(name){
+    const u = new URL(location.href);
+    const v1 = u.searchParams.get(name);
+    if (v1) return v1;
+    // también en hash: ...#code=XXXX
+    const h = new URLSearchParams((u.hash||'').replace(/^#/, ''));
+    return h.get(name);
+  }
+
+  // Si algún día usas Telegram WebApp SDK:
+  function getStartParamFromTG(){
+    try {
+      // Disponible sólo si cargas Telegram WebApp JS; aquí no es crítico.
+      // @ts-ignore
+      if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe) {
+        return Telegram.WebApp.initDataUnsafe.start_param || '';
+      }
+    } catch(_){}
+    return '';
+  }
+
+  const code = getParam('code') || getStartParamFromTG() || '';
+  if (code) {
+    google.script.run.withSuccessHandler(function(res){
+      localStorage.setItem('sessionToken', res.sessionToken);
+      paint(res.player, res.files);
+    }).withFailureHandler(function(err){
+      document.getElementById('err').textContent = 'Error de sesión: ' + (err && err.message ? err.message : err);
+    }).player_exchangeCode(code, navigator.userAgent);
+    return;
+  }
+
+  const tok = localStorage.getItem('sessionToken') || '';
+  if (tok) {
+    google.script.run.withSuccessHandler(function(res){
+      paint(res.player, res.files);
+    }).withFailureHandler(function(){
+      document.getElementById('err').textContent = 'Sesión expirada. Abre de nuevo desde el bot.';
+      localStorage.removeItem('sessionToken');
+    }).player_contextBySession(tok);
+  } else {
+    document.getElementById('err').textContent = 'No hay sesión. Abre desde el bot.';
+  }
+
+  function paint(player, files){
+    document.getElementById('info').textContent = (player.name||player.playerId) + ' · ' + (files.length||0) + ' archivo(s)';
+    const ul = document.getElementById('files');
+    ul.innerHTML = files.map(f => '<li>'+escapeHtml(f.name)+'</li>').join('');
+  }
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+})();
+</script>
+
